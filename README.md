@@ -43,6 +43,31 @@ The included [`codex-usage.conf`](codex-usage.conf) contains:
   data_format = "influx"
 ```
 
+The Telegraf service user must be able to run Docker. On Debian this is usually the `telegraf` user. Use one of these approaches:
+
+```bash
+sudo usermod -aG docker telegraf
+sudo systemctl restart telegraf
+```
+
+Membership in the `docker` group is effectively root-equivalent. If you prefer not to add `telegraf` to that group, use `sudo` in the Telegraf command and allow only this Docker invocation in sudoers:
+
+```toml
+[[inputs.exec]]
+  commands = [
+    "sudo /usr/bin/docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter:/data codex-usage-exporter"
+  ]
+  interval = "5m"
+  timeout = "30s"
+  data_format = "influx"
+```
+
+Example sudoers entry:
+
+```sudoers
+telegraf ALL=(root) NOPASSWD: /usr/bin/docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter\:/data codex-usage-exporter
+```
+
 ## Output Examples
 
 Default compact JSON:
