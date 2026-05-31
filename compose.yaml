@@ -1,0 +1,10 @@
+services:
+  codex-usage-exporter:
+    build: .
+    image: codex-usage-exporter
+    volumes:
+      - codex-usage-exporter:/data
+
+volumes:
+  codex-usage-exporter:
+    name: codex-usage-exporter

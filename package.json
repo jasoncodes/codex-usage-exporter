@@ -1,0 +1,17 @@
+{
+  "name": "codex-usage-exporter",
+  "version": "0.1.0",
+  "description": "Export Codex usage limits from the Codex CLI auth token.",
+  "type": "commonjs",
+  "bin": {
+    "codex-usage-exporter": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT"
+}
