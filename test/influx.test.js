@@ -17,12 +17,14 @@ test("toInflux emits primary and secondary rows", () => {
         primary_window: {
           used_percent: 2,
           limit_window_seconds: 18000,
-          reset_after_seconds: 17956
+          reset_after_seconds: 17956,
+          reset_at: 1780140337
         },
         secondary_window: {
           used_percent: 27,
           limit_window_seconds: 604800,
-          reset_after_seconds: 245230
+          reset_after_seconds: 245230,
+          reset_at: 1780367611
         }
       }
     }
@@ -31,8 +33,8 @@ test("toInflux emits primary and secondary rows", () => {
   assert.equal(
     output,
     [
-      "codex_usage,email=person\\,\\ one@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i 1780122381000000000",
-      "codex_usage,email=person\\,\\ one@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i 1780122381000000000"
+      "codex_usage,email=person\\,\\ one@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i,reset_at=1780140337i 1780122381000000000",
+      "codex_usage,email=person\\,\\ one@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i,reset_at=1780367611i 1780122381000000000"
     ].join("\n")
   );
 });

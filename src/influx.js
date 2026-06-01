@@ -16,7 +16,8 @@ function toInflux(payload, options = {}) {
       const fields = [
         field("used_percent", window.used_percent),
         integerField("limit_window_seconds", window.limit_window_seconds),
-        integerField("reset_after_seconds", window.reset_after_seconds)
+        integerField("reset_after_seconds", window.reset_after_seconds),
+        integerField("reset_at", window.reset_at)
       ].join(",");
       return `codex_usage,${tags} ${fields} ${timestamp}`;
     })

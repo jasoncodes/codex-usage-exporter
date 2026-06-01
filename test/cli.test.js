@@ -101,7 +101,7 @@ test("CODEX_USAGE_OUTPUT selects output without CLI flags", async () => {
   assert.equal(code, 0);
   assert.match(
     stdout.value,
-    /^codex_usage,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=10i 1000000000000/m
+    /^codex_usage,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=10i,reset_at=1010i 1000000000000/m
   );
 });
 

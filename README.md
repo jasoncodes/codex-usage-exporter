@@ -126,11 +126,11 @@ docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter:/data codex
 ```
 
 ```text
-codex_usage,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i 1780199981000000000
-codex_usage,email=person@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i 1780199981000000000
+codex_usage,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i,reset_at=1780217937i 1780199981000000000
+codex_usage,email=person@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i,reset_at=1780445211i 1780199981000000000
 ```
 
-`email` and `window` are tags. `used_percent` is emitted as a float-compatible numeric field; `limit_window_seconds` and `reset_after_seconds` are emitted as Influx integer fields.
+`email` and `window` are tags. `used_percent` is emitted as a float-compatible numeric field; `limit_window_seconds`, `reset_after_seconds`, and `reset_at` are emitted as Influx integer fields.
 
 The Influx timestamp is generated from the HTTP `Date` header on the usage API response, converted from Unix seconds to nanoseconds. If the header is missing or invalid, the exporter falls back to the local clock. The same Unix-seconds value is exposed as `timestamp` in normalized JSON.
 
