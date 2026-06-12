@@ -98,7 +98,7 @@ function normalizeUsage(payload, context = {}) {
     });
   }
 
-  return {
+  const normalized = {
     timestamp: nowSeconds,
     email: context.email || "unknown",
     rate_limit: {
@@ -111,6 +111,13 @@ function normalizeUsage(payload, context = {}) {
       secondary_window: secondary
     }
   };
+
+  const resetCredits = normalizeResetCredits(payload.rate_limit_reset_credits || payload.rateLimitResetCredits);
+  if (resetCredits) {
+    normalized.rate_limit_reset_credits = resetCredits;
+  }
+
+  return normalized;
 }
 
 function findRateLimitSource(payload) {
@@ -170,6 +177,21 @@ function normalizeWindow(window, nowSeconds) {
 
   normalized.reset_at = resetAt === undefined ? nowSeconds + resetAfterSeconds : resetAt;
   return normalized;
+}
+
+function normalizeResetCredits(source) {
+  if (!source || typeof source !== "object") {
+    return undefined;
+  }
+
+  const availableCount = numberFrom(source.available_count, source.availableCount);
+  if (availableCount === undefined) {
+    return undefined;
+  }
+
+  return {
+    available_count: availableCount
+  };
 }
 
 function inferAllowed(source) {

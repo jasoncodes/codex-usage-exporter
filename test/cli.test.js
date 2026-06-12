@@ -62,6 +62,9 @@ test("missing auth with TTY runs device auth and fetches", async () => {
         reset_after_seconds: 20,
         reset_at: 1020
       }
+    },
+    rate_limit_reset_credits: {
+      available_count: 1
     }
   });
 });
@@ -102,6 +105,10 @@ test("CODEX_USAGE_OUTPUT selects output without CLI flags", async () => {
   assert.match(
     stdout.value,
     /^codex_usage,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=10i,reset_at=1010i 1000000000000/m
+  );
+  assert.match(
+    stdout.value,
+    /^codex_usage,email=person@example.com rate_limit_reset_credits_available_count=1i 1000000000000/m
   );
 });
 
@@ -179,7 +186,10 @@ function response() {
     ok: true,
     status: 200,
     headers: new Headers({ date: "Thu, 01 Jan 1970 00:16:40 GMT" }),
-    json: async () => ({ rate_limit: sampleRateLimit() })
+    json: async () => ({
+      rate_limit: sampleRateLimit(),
+      rate_limit_reset_credits: { available_count: 1 }
+    })
   };
 }
 

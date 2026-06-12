@@ -77,7 +77,7 @@ docker run --rm -v codex-usage-exporter:/data codex-usage-exporter
 ```
 
 ```json
-{"timestamp":1780199981,"email":"person@example.com","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":2,"limit_window_seconds":18000,"reset_after_seconds":17956,"reset_at":1780217937},"secondary_window":{"used_percent":27,"limit_window_seconds":604800,"reset_after_seconds":245230,"reset_at":1780445211}}}
+{"timestamp":1780199981,"email":"person@example.com","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":2,"limit_window_seconds":18000,"reset_after_seconds":17956,"reset_at":1780217937},"secondary_window":{"used_percent":27,"limit_window_seconds":604800,"reset_after_seconds":245230,"reset_at":1780445211}},"rate_limit_reset_credits":{"available_count":1}}
 ```
 
 Pretty JSON:
@@ -105,6 +105,9 @@ docker run --rm -e CODEX_USAGE_OUTPUT=pretty -v codex-usage-exporter:/data codex
       "reset_after_seconds": 245230,
       "reset_at": 1780445211
     }
+  },
+  "rate_limit_reset_credits": {
+    "available_count": 1
   }
 }
 ```
@@ -116,7 +119,7 @@ docker run --rm -e CODEX_USAGE_OUTPUT=raw -v codex-usage-exporter:/data codex-us
 ```
 
 ```json
-{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":2,"limit_window_seconds":18000,"reset_after_seconds":17956},"secondary_window":{"used_percent":27,"limit_window_seconds":604800,"reset_after_seconds":245230}}}
+{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":2,"limit_window_seconds":18000,"reset_after_seconds":17956},"secondary_window":{"used_percent":27,"limit_window_seconds":604800,"reset_after_seconds":245230}},"rate_limit_reset_credits":{"available_count":1}}
 ```
 
 InfluxDB Line Protocol:
@@ -128,9 +131,10 @@ docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter:/data codex
 ```text
 codex_usage,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i,reset_at=1780217937i 1780199981000000000
 codex_usage,email=person@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i,reset_at=1780445211i 1780199981000000000
+codex_usage,email=person@example.com rate_limit_reset_credits_available_count=1i 1780199981000000000
 ```
 
-`email` and `window` are tags. `used_percent` is emitted as a float-compatible numeric field; `limit_window_seconds`, `reset_after_seconds`, and `reset_at` are emitted as Influx integer fields.
+`email` and `window` are tags. `used_percent` is emitted as a float-compatible numeric field; `limit_window_seconds`, `reset_after_seconds`, `reset_at`, and `rate_limit_reset_credits_available_count` are emitted as Influx integer fields. Reset-credit availability is emitted only when the backend includes it; the observed usage API response does not currently include reset-credit expiration timestamps.
 
 The Influx timestamp is generated from the HTTP `Date` header on the usage API response, converted from Unix seconds to nanoseconds. If the header is missing or invalid, the exporter falls back to the local clock. The same Unix-seconds value is exposed as `timestamp` in normalized JSON.
 

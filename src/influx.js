@@ -9,7 +9,7 @@ function toInflux(payload, options = {}) {
     ["secondary", rateLimit.secondary_window]
   ];
 
-  return windows
+  const lines = windows
     .filter(([, window]) => window)
     .map(([name, window]) => {
       const tags = `email=${escapeTag(email)},window=${escapeTag(name)}`;
@@ -20,8 +20,19 @@ function toInflux(payload, options = {}) {
         integerField("reset_at", window.reset_at)
       ].join(",");
       return `codex_usage,${tags} ${fields} ${timestamp}`;
-    })
-    .join("\n");
+    });
+
+  const resetCredits = payload.rate_limit_reset_credits;
+  if (resetCredits && resetCredits.available_count !== undefined) {
+    const tags = `email=${escapeTag(email)}`;
+    const fields = integerField(
+      "rate_limit_reset_credits_available_count",
+      resetCredits.available_count
+    );
+    lines.push(`codex_usage,${tags} ${fields} ${timestamp}`);
+  }
+
+  return lines.join("\n");
 }
 
 function timestampNs(timestampSeconds) {

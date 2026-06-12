@@ -75,6 +75,9 @@ test("fetchUsage rejects malformed JSON", async () => {
 test("normalizeUsage emits normalized windows and derives reset_after_seconds", () => {
   const normalized = normalizeUsage(
     {
+      rate_limit_reset_credits: {
+        available_count: 1
+      },
       rate_limit: {
         allowed: true,
         limit_reached: false,
@@ -111,6 +114,9 @@ test("normalizeUsage emits normalized windows and derives reset_after_seconds", 
         reset_after_seconds: 245230,
         reset_at: 1780367611
       }
+    },
+    rate_limit_reset_credits: {
+      available_count: 1
     }
   });
 });
