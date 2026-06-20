@@ -25,7 +25,12 @@ function toInflux(payload, options = {}) {
   const resetCredits = payload.rate_limit_reset_credits;
   if (resetCredits && resetCredits.available_count !== undefined) {
     const tags = `email=${escapeTag(email)}`;
-    const fields = integerField("available_count", resetCredits.available_count);
+    const fields = [
+      integerField("available_count", resetCredits.available_count),
+      optionalIntegerField("next_granted_at", resetCredits.next_granted_at),
+      optionalIntegerField("next_expires_at", resetCredits.next_expires_at),
+      optionalIntegerField("next_expires_after_seconds", resetCredits.next_expires_after_seconds)
+    ].filter(Boolean).join(",");
     lines.push(`codex_usage_resets,${tags} ${fields} ${timestamp}`);
   }
 
@@ -61,6 +66,10 @@ function integerField(name, value) {
   return `${name}=${number}i`;
 }
 
+function optionalIntegerField(name, value) {
+  return value === undefined || value === null ? undefined : integerField(name, value);
+}
+
 function escapeTag(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/ /g, "\\ ").replace(/=/g, "\\=");
 }
@@ -69,5 +78,6 @@ module.exports = {
   toInflux,
   timestampNs,
   integerField,
+  optionalIntegerField,
   escapeTag
 };

@@ -4,7 +4,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 const { loadAuth } = require("./auth");
 const { refreshAuth } = require("./refresh");
-const { fetchUsage, normalizeUsage, UsageError } = require("./usage");
+const { fetchResetCredits, fetchUsage, normalizeUsage, UsageError } = require("./usage");
 const { toInflux } = require("./influx");
 
 const LOGIN_HINT =
@@ -106,7 +106,7 @@ async function printUsage({
   refreshAuthFn,
   spawnAsync
 }) {
-  const { auth: currentAuth, usage } = await fetchUsageWithRefresh(auth, {
+  const { auth: currentAuth, resetCredits, usage } = await fetchUsageWithRefresh(auth, {
     env,
     stderr,
     fetchImpl,
@@ -117,12 +117,16 @@ async function printUsage({
   });
 
   if (output === "raw") {
-    stdout.write(`${JSON.stringify(usage.payload)}\n`);
+    stdout.write(`${JSON.stringify({
+      usage: usage.payload,
+      rate_limit_reset_credits: resetCredits.payload
+    })}\n`);
     return;
   }
 
   const normalized = normalizeUsage(usage.payload, {
     email: currentAuth.email,
+    resetCreditsPayload: resetCredits.payload,
     timestamp: usage.timestamp
   });
 
@@ -143,7 +147,7 @@ async function fetchUsageWithRefresh(auth, deps) {
   try {
     return {
       auth,
-      usage: await fetchUsage(auth, { fetch: deps.fetchImpl, nowMs: deps.nowMs })
+      ...(await fetchBackendData(auth, deps))
     };
   } catch (error) {
     if (!(error instanceof UsageError) || error.code !== "auth_failed") {
@@ -164,9 +168,15 @@ async function fetchUsageWithRefresh(auth, deps) {
 
     return {
       auth: refreshedAuth,
-      usage: await fetchUsage(refreshedAuth, { fetch: deps.fetchImpl, nowMs: deps.nowMs })
+      ...(await fetchBackendData(refreshedAuth, deps))
     };
   }
+}
+
+async function fetchBackendData(auth, deps) {
+  const usage = await fetchUsage(auth, { fetch: deps.fetchImpl, nowMs: deps.nowMs });
+  const resetCredits = await fetchResetCredits(auth, { fetch: deps.fetchImpl, nowMs: deps.nowMs });
+  return { usage, resetCredits };
 }
 
 function formatError(error) {
@@ -184,6 +194,7 @@ if (require.main === module) {
 
 module.exports = {
   LOGIN_HINT,
+  fetchBackendData,
   fetchUsageWithRefresh,
   main,
   outputFromEnv,

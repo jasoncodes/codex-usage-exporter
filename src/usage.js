@@ -1,6 +1,7 @@
 "use strict";
 
 const USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits";
 
 class UsageError extends Error {
   constructor(message, options = {}) {
@@ -12,6 +13,14 @@ class UsageError extends Error {
 }
 
 async function fetchUsage(auth, options = {}) {
+  return fetchJsonEndpoint(USAGE_URL, "Usage", auth, options);
+}
+
+async function fetchResetCredits(auth, options = {}) {
+  return fetchJsonEndpoint(RESET_CREDITS_URL, "Reset credits", auth, options);
+}
+
+async function fetchJsonEndpoint(url, label, auth, options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   if (typeof fetchImpl !== "function") {
     throw new UsageError("No fetch implementation is available.", { code: "missing_fetch" });
@@ -19,12 +28,12 @@ async function fetchUsage(auth, options = {}) {
 
   let response;
   try {
-    response = await fetchImpl(USAGE_URL, {
+    response = await fetchImpl(url, {
       method: "GET",
       headers: requestHeaders(auth)
     });
   } catch (error) {
-    throw new UsageError(`Usage request failed: ${error.message}`, { code: "network_error" });
+    throw new UsageError(`${label} request failed: ${error.message}`, { code: "network_error" });
   }
 
   if (response.status === 401 || response.status === 403) {
@@ -35,7 +44,7 @@ async function fetchUsage(auth, options = {}) {
   }
 
   if (!response.ok) {
-    throw new UsageError(`Usage request failed with HTTP ${response.status}.`, {
+    throw new UsageError(`${label} request failed with HTTP ${response.status}.`, {
       code: "api_error",
       status: response.status
     });
@@ -49,7 +58,7 @@ async function fetchUsage(auth, options = {}) {
       timestamp
     };
   } catch (error) {
-    throw new UsageError(`Usage response was not valid JSON: ${error.message}`, {
+    throw new UsageError(`${label} response was not valid JSON: ${error.message}`, {
       code: "invalid_json"
     });
   }
@@ -112,7 +121,10 @@ function normalizeUsage(payload, context = {}) {
     }
   };
 
-  const resetCredits = normalizeResetCredits(payload.rate_limit_reset_credits || payload.rateLimitResetCredits);
+  const resetCredits = normalizeResetCredits(
+    context.resetCreditsPayload || payload.rate_limit_reset_credits || payload.rateLimitResetCredits,
+    nowSeconds
+  );
   if (resetCredits) {
     normalized.rate_limit_reset_credits = resetCredits;
   }
@@ -179,19 +191,104 @@ function normalizeWindow(window, nowSeconds) {
   return normalized;
 }
 
-function normalizeResetCredits(source) {
+function normalizeResetCredits(source, nowSeconds = Math.floor(Date.now() / 1000)) {
   if (!source || typeof source !== "object") {
     return undefined;
   }
 
-  const availableCount = numberFrom(source.available_count, source.availableCount);
-  if (availableCount === undefined) {
+  const credits = Array.isArray(source.credits)
+    ? source.credits.map((credit) => normalizeResetCredit(credit, nowSeconds)).filter(Boolean)
+    : undefined;
+  const availableCount = numberFrom(
+    source.available_count,
+    source.availableCount,
+    credits && credits.filter((credit) => credit.status === "available").length
+  );
+
+  if (availableCount === undefined && (!credits || credits.length === 0)) {
     return undefined;
   }
 
-  return {
-    available_count: availableCount
+  const normalized = {};
+  if (availableCount !== undefined) {
+    normalized.available_count = availableCount;
+  }
+  if (credits && credits.length > 0) {
+    normalized.credits = credits;
+  }
+
+  const nextCredit = nextExpiringAvailableCredit(credits);
+  if (nextCredit) {
+    if (nextCredit.granted_at !== undefined) {
+      normalized.next_granted_at = nextCredit.granted_at;
+    }
+    normalized.next_expires_at = nextCredit.expires_at;
+    normalized.next_expires_after_seconds = Math.max(0, nextCredit.expires_at - nowSeconds);
+  }
+
+  return normalized;
+}
+
+function normalizeResetCredit(credit, nowSeconds) {
+  if (!credit || typeof credit !== "object") {
+    return undefined;
+  }
+
+  const normalized = {
+    id: stringOrUndefined(credit.id),
+    reset_type: stringOrUndefined(credit.reset_type || credit.resetType),
+    status: stringOrUndefined(credit.status),
+    title: stringOrUndefined(credit.title)
   };
+
+  const grantedAt = timestampFromIso(credit.granted_at || credit.grantedAt);
+  const expiresAt = timestampFromIso(credit.expires_at || credit.expiresAt);
+  const redeemStartedAt = timestampFromIso(credit.redeem_started_at || credit.redeemStartedAt);
+  const redeemedAt = timestampFromIso(credit.redeemed_at || credit.redeemedAt);
+
+  if (grantedAt !== undefined) {
+    normalized.granted_at = grantedAt;
+  }
+  if (expiresAt !== undefined) {
+    normalized.expires_at = expiresAt;
+    normalized.expires_after_seconds = Math.max(0, expiresAt - nowSeconds);
+  }
+  if (redeemStartedAt !== undefined) {
+    normalized.redeem_started_at = redeemStartedAt;
+  }
+  if (redeemedAt !== undefined) {
+    normalized.redeemed_at = redeemedAt;
+  }
+
+  for (const key of Object.keys(normalized)) {
+    if (normalized[key] === undefined) {
+      delete normalized[key];
+    }
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function nextExpiringAvailableCredit(credits) {
+  if (!credits) {
+    return undefined;
+  }
+
+  return credits
+    .filter((credit) => credit.status === "available" && credit.expires_at !== undefined)
+    .sort((left, right) => left.expires_at - right.expires_at)[0];
+}
+
+function timestampFromIso(value) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : undefined;
+}
+
+function stringOrUndefined(value) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function inferAllowed(source) {
@@ -236,8 +333,10 @@ function numberFrom(...values) {
 }
 
 module.exports = {
+  RESET_CREDITS_URL,
   USAGE_URL,
   UsageError,
+  fetchResetCredits,
   fetchUsage,
   normalizeUsage,
   requestHeaders,

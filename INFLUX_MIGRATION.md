@@ -3,7 +3,7 @@
 The Influx output changed from the old mixed `codex_usage` measurement to two purpose-specific measurements:
 
 - `codex_usage_windows` for primary and secondary usage windows.
-- `codex_usage_resets` for account-level reset-credit availability.
+- `codex_usage_resets` for account-level reset-credit availability, next grant time, and next expiry.
 
 To backfill existing data in InfluxDB 1.x or InfluxQL-compatible stores:
 
@@ -26,4 +26,4 @@ WHERE "rate_limit_reset_credits_available_count" >= 0
 GROUP BY "host", "email";
 ```
 
-The backfilled `codex_usage_resets` rows contain `available_count`, matching the reset-credit field that existed in the old mixed measurement.
+Historical rows from the old measurement do not have reset-credit grant or expiry timestamps, so the backfilled `codex_usage_resets` rows only contain `available_count`. New rows will include `next_granted_at`, `next_expires_at`, and `next_expires_after_seconds` when the reset-credit endpoint reports an available expiring credit.

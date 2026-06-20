@@ -39,7 +39,7 @@ test("missing auth with TTY runs device auth and fetches", async () => {
       }
       return auth();
     },
-    fetch: async () => response()
+    fetch: async (url) => routedResponse(url)
   });
 
   assert.equal(code, 0);
@@ -64,7 +64,21 @@ test("missing auth with TTY runs device auth and fetches", async () => {
       }
     },
     rate_limit_reset_credits: {
-      available_count: 1
+      available_count: 1,
+      credits: [
+        {
+          id: "RateLimitResetCredit_1",
+          reset_type: "codex_rate_limits",
+          status: "available",
+          title: "One free rate limit reset",
+          granted_at: 500,
+          expires_at: 1800,
+          expires_after_seconds: 800
+        }
+      ],
+      next_granted_at: 500,
+      next_expires_at: 1800,
+      next_expires_after_seconds: 800
     }
   });
 });
@@ -72,22 +86,21 @@ test("missing auth with TTY runs device auth and fetches", async () => {
 test("raw output passes backend payload through", async () => {
   const stdout = buffer();
   const payload = { hello: "world", rate_limit: sampleRateLimit() };
+  const resetPayload = sampleResetCredits();
   const code = await main({
     env: { CODEX_USAGE_OUTPUT: "raw" },
     stdin: { isTTY: false },
     stdout,
     stderr: buffer(),
     loadAuth: () => auth(),
-    fetch: async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ date: "Thu, 01 Jan 1970 00:16:40 GMT" }),
-      json: async () => payload
-    })
+    fetch: async (url) => jsonResponse(url.includes("rate-limit-reset-credits") ? resetPayload : payload)
   });
 
   assert.equal(code, 0);
-  assert.deepEqual(JSON.parse(stdout.value), payload);
+  assert.deepEqual(JSON.parse(stdout.value), {
+    usage: payload,
+    rate_limit_reset_credits: resetPayload
+  });
 });
 
 test("CODEX_USAGE_OUTPUT selects output without CLI flags", async () => {
@@ -98,7 +111,7 @@ test("CODEX_USAGE_OUTPUT selects output without CLI flags", async () => {
     stdout,
     stderr: buffer(),
     loadAuth: () => auth(),
-    fetch: async () => response()
+    fetch: async (url) => routedResponse(url)
   });
 
   assert.equal(code, 0);
@@ -108,7 +121,7 @@ test("CODEX_USAGE_OUTPUT selects output without CLI flags", async () => {
   );
   assert.match(
     stdout.value,
-    /^codex_usage_resets,email=person@example.com available_count=1i 1000000000000/m
+    /^codex_usage_resets,email=person@example.com available_count=1i,next_granted_at=500i,next_expires_at=1800i,next_expires_after_seconds=800i 1000000000000/m
   );
 });
 
@@ -142,7 +155,7 @@ test("authentication failure refreshes Codex auth and retries once", async () =>
       }
 
       assert.equal(options.headers.Authorization, "Bearer fresh");
-      return response();
+      return routedResponse(_url);
     }
   });
 
@@ -164,7 +177,7 @@ test("invalid CODEX_USAGE_OUTPUT is reported without a stack trace", async () =>
     stdout: buffer(),
     stderr,
     loadAuth: () => auth(),
-    fetch: async () => response()
+    fetch: async (url) => routedResponse(url)
   });
 
   assert.equal(code, 1);
@@ -182,14 +195,43 @@ function auth(overrides = {}) {
 }
 
 function response() {
+  return jsonResponse({
+    rate_limit: sampleRateLimit(),
+    rate_limit_reset_credits: { available_count: 1 }
+  });
+}
+
+function resetCreditsResponse() {
+  return jsonResponse(sampleResetCredits());
+}
+
+function jsonResponse(payload) {
   return {
     ok: true,
     status: 200,
     headers: new Headers({ date: "Thu, 01 Jan 1970 00:16:40 GMT" }),
-    json: async () => ({
-      rate_limit: sampleRateLimit(),
-      rate_limit_reset_credits: { available_count: 1 }
-    })
+    json: async () => payload
+  };
+}
+
+function routedResponse(url) {
+  return String(url).includes("rate-limit-reset-credits") ? resetCreditsResponse() : response();
+}
+
+function sampleResetCredits() {
+  return {
+    credits: [
+      {
+        id: "RateLimitResetCredit_1",
+        reset_type: "codex_rate_limits",
+        status: "available",
+        granted_at: "1970-01-01T00:08:20Z",
+        expires_at: "1970-01-01T00:30:00Z",
+        redeemed_at: null,
+        title: "One free rate limit reset"
+      }
+    ],
+    available_count: 1
   };
 }
 

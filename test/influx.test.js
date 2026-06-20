@@ -28,7 +28,10 @@ test("toInflux emits primary and secondary rows", () => {
         }
       },
       rate_limit_reset_credits: {
-        available_count: 1
+        available_count: 1,
+        next_granted_at: 1780122381,
+        next_expires_at: 1780208781,
+        next_expires_after_seconds: 86400
       }
     }
   );
@@ -38,7 +41,7 @@ test("toInflux emits primary and secondary rows", () => {
     [
       "codex_usage_windows,email=person\\,\\ one@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i,reset_at=1780140337i 1780122381000000000",
       "codex_usage_windows,email=person\\,\\ one@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i,reset_at=1780367611i 1780122381000000000",
-      "codex_usage_resets,email=person\\,\\ one@example.com available_count=1i 1780122381000000000"
+      "codex_usage_resets,email=person\\,\\ one@example.com available_count=1i,next_granted_at=1780122381i,next_expires_at=1780208781i,next_expires_after_seconds=86400i 1780122381000000000"
     ].join("\n")
   );
 });
