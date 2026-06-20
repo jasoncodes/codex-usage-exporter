@@ -19,17 +19,14 @@ function toInflux(payload, options = {}) {
         integerField("reset_after_seconds", window.reset_after_seconds),
         integerField("reset_at", window.reset_at)
       ].join(",");
-      return `codex_usage,${tags} ${fields} ${timestamp}`;
+      return `codex_usage_windows,${tags} ${fields} ${timestamp}`;
     });
 
   const resetCredits = payload.rate_limit_reset_credits;
   if (resetCredits && resetCredits.available_count !== undefined) {
     const tags = `email=${escapeTag(email)}`;
-    const fields = integerField(
-      "rate_limit_reset_credits_available_count",
-      resetCredits.available_count
-    );
-    lines.push(`codex_usage,${tags} ${fields} ${timestamp}`);
+    const fields = integerField("available_count", resetCredits.available_count);
+    lines.push(`codex_usage_resets,${tags} ${fields} ${timestamp}`);
   }
 
   return lines.join("\n");

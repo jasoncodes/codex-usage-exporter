@@ -129,14 +129,18 @@ docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter:/data codex
 ```
 
 ```text
-codex_usage,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i,reset_at=1780217937i 1780199981000000000
-codex_usage,email=person@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i,reset_at=1780445211i 1780199981000000000
-codex_usage,email=person@example.com rate_limit_reset_credits_available_count=1i 1780199981000000000
+codex_usage_windows,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i,reset_at=1780217937i 1780199981000000000
+codex_usage_windows,email=person@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i,reset_at=1780445211i 1780199981000000000
+codex_usage_resets,email=person@example.com available_count=1i 1780199981000000000
 ```
 
-`email` and `window` are tags. `used_percent` is emitted as a float-compatible numeric field; `limit_window_seconds`, `reset_after_seconds`, `reset_at`, and `rate_limit_reset_credits_available_count` are emitted as Influx integer fields. Reset-credit availability is emitted only when the backend includes it; the observed usage API response does not currently include reset-credit expiration timestamps.
+`codex_usage_windows` uses `email` and `window` tags. `used_percent` is emitted as a float-compatible numeric field; `limit_window_seconds`, `reset_after_seconds`, and `reset_at` are emitted as Influx integer fields.
+
+`codex_usage_resets` uses the `email` tag. `available_count` is emitted as an Influx integer field.
 
 The Influx timestamp is generated from the HTTP `Date` header on the usage API response, converted from Unix seconds to nanoseconds. If the header is missing or invalid, the exporter falls back to the local clock. The same Unix-seconds value is exposed as `timestamp` in normalized JSON.
+
+See [`INFLUX_MIGRATION.md`](INFLUX_MIGRATION.md) for migration notes and InfluxQL backfill examples for the measurement split.
 
 ## Development
 
