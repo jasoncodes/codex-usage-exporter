@@ -5,11 +5,12 @@ metrics to MQTT for Home Assistant discovery.
 
 The exporter still runs as an `inputs.exec` command with
 `CODEX_USAGE_OUTPUT=influx`, so Telegraf receives the normal
-`codex_usage_windows` points:
+`codex_usage_windows` and `codex_usage_resets` points:
 
 ```text
 codex_usage_windows,email=openai@example.com,window=primary used_percent=8,limit_window_seconds=18000i,reset_after_seconds=14400i,reset_at=1782032403i 1782015447000000000
 codex_usage_windows,email=openai@example.com,window=secondary used_percent=66,limit_window_seconds=604800i,reset_after_seconds=325900i,reset_at=1782341347i 1782015447000000000
+codex_usage_resets,email=openai@example.com available_count=1i,next_granted_at=1780172548i,next_expires_at=1782764548i,next_expires_after_seconds=2564567i 1782015447000000000
 ```
 
 The Starlark processor preserves those original metrics and returns additional
@@ -155,6 +156,114 @@ def apply(metric):
 '''
 ```
 
+## Codex Reset Processor
+
+```toml
+[[processors.starlark]]
+  alias = "codex_usage_resets_mqtt"
+  namepass = ["codex_usage_resets"]
+  source = '''
+load("json.star", "json")
+load("time.star", "time")
+
+def topic_part(value):
+    return str(value).lower().replace("/", "_").replace("+", "_").replace("#", "_").replace(" ", "_")
+
+def object_id_part(value):
+    return topic_part(value).replace("@", "_").replace(".", "_").replace(":", "_")
+
+def iso_from_unix_seconds(value):
+    if value == None:
+        return None
+    return time.from_timestamp(int(value)).format("2006-01-02T15:04:05Z07:00")
+
+def mqtt_metric(topic, payload, retain=False):
+    name = "mqtt_output_retain" if retain else "mqtt_output"
+    m = Metric(name)
+    m.tags["topic"] = topic
+    m.fields["payload"] = payload
+    return m
+
+def sensor_discovery(topic, unique_id, name, state_topic, value_template, device, unit=None, device_class=None, state_class=None, suggested_display_precision=None):
+    payload = {
+        "name": name,
+        "unique_id": unique_id,
+        "state_topic": state_topic,
+        "value_template": value_template,
+        "device": device,
+    }
+
+    if unit != None:
+        payload["unit_of_measurement"] = unit
+    if device_class != None:
+        payload["device_class"] = device_class
+    if state_class != None:
+        payload["state_class"] = state_class
+
+    if suggested_display_precision != None:
+        payload["suggested_display_precision"] = suggested_display_precision
+
+    return mqtt_metric(topic, json.encode(payload), True)
+
+def apply(metric):
+    email = metric.tags.get("email", "")
+
+    if not email:
+        return metric
+
+    email_topic = topic_part(email)
+    email_id = object_id_part(email)
+
+    state_topic = "telegraf/codex_usage_resets/" + email_topic
+    object_prefix = "codex_usage_resets_" + email_id
+    discovery_prefix = "homeassistant/sensor/" + object_prefix
+
+    collected_at = int(metric.time / 1000000000)
+    payload = {
+        "timestamp": iso_from_unix_seconds(collected_at),
+    }
+
+    for key, value in metric.fields.items():
+        if key == "next_granted_at" or key == "next_expires_at":
+            payload[key] = iso_from_unix_seconds(value)
+        else:
+            payload[key] = value
+
+    device = {
+        "identifiers": ["codex_usage_exporter_" + email_id],
+        "name": "Codex Usage " + email,
+        "manufacturer": "OpenAI",
+        "model": "Codex Usage Exporter",
+    }
+
+    return [
+        metric,
+        mqtt_metric(state_topic, json.encode(payload)),
+
+        sensor_discovery(
+            discovery_prefix + "_available_count/config",
+            object_prefix + "_available_count",
+            "resets available",
+            state_topic,
+            "{{ value_json.available_count }}",
+            device,
+            state_class="measurement",
+            suggested_display_precision=0,
+        ),
+
+        sensor_discovery(
+            discovery_prefix + "_next_expires_at/config",
+            object_prefix + "_next_expires_at",
+            "next reset expires",
+            state_topic,
+            "{{ value_json.next_expires_at }}",
+            device,
+            device_class="timestamp",
+        ),
+    ]
+'''
+```
+
 ## Published Topics
 
 The state messages are not retained:
@@ -162,6 +271,7 @@ The state messages are not retained:
 ```text
 telegraf/codex_usage_windows/openai@example.com/primary
 telegraf/codex_usage_windows/openai@example.com/secondary
+telegraf/codex_usage_resets/openai@example.com
 ```
 
 Example state payload:
@@ -176,6 +286,18 @@ Example state payload:
 }
 ```
 
+Example reset state payload:
+
+```json
+{
+  "available_count": 1,
+  "next_expires_after_seconds": 2564567,
+  "next_expires_at": "2026-07-18T10:22:28+10:00",
+  "next_granted_at": "2026-06-18T10:22:28+10:00",
+  "timestamp": "2026-06-21T14:17:27+10:00"
+}
+```
+
 The Home Assistant discovery messages are retained:
 
 ```text
@@ -183,9 +305,11 @@ homeassistant/sensor/codex_usage_windows_openai_example_com_primary_used_percent
 homeassistant/sensor/codex_usage_windows_openai_example_com_primary_reset_at/config
 homeassistant/sensor/codex_usage_windows_openai_example_com_secondary_used_percent/config
 homeassistant/sensor/codex_usage_windows_openai_example_com_secondary_reset_at/config
+homeassistant/sensor/codex_usage_resets_openai_example_com_available_count/config
+homeassistant/sensor/codex_usage_resets_openai_example_com_next_expires_at/config
 ```
 
-Home Assistant should discover four sensors under the `Codex Usage <email>`
+Home Assistant should discover six sensors under the `Codex Usage <email>`
 device:
 
 ```text
@@ -193,6 +317,8 @@ device:
 5h reset
 1w used
 1w reset
+resets available
+next reset expires
 ```
 
 Because the discovery payloads include `unique_id`, Home Assistant will register
@@ -221,8 +347,10 @@ different ones for your MQTT discovery sensors:
 ```jinja
 {% set five_used = states('sensor.codex_usage_openai_example_com_codex_5h_used') | float(0) %}
 {% set week_used = states('sensor.codex_usage_openai_example_com_codex_1w_used') | float(0) %}
+{% set reset_count = states('sensor.codex_usage_openai_example_com_resets_available') | int(0) %}
 {% set five_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_5h_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_5h_reset') else none %}
 {% set week_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_1w_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_1w_reset') else none %}
+{% set reset_expiry = as_datetime(states('sensor.codex_usage_openai_example_com_next_reset_expires')) if has_value('sensor.codex_usage_openai_example_com_next_reset_expires') else none %}
 {% macro duration_words(dt) -%}
   {%- set seconds = ((dt - now()).total_seconds() | int(0)) if dt else 0 -%}
   {%- set seconds = [seconds, 0] | max -%}
@@ -239,17 +367,26 @@ different ones for your MQTT discovery sensors:
 {%- endmacro %}
 {{ (100 - five_used) | round(0) | int }}% remaining for {{ duration_words(five_reset) }}.
 {{ (100 - week_used) | round(0) | int }}% remaining for {{ duration_words(week_reset) }}.
+{% if reset_count > 0 %}{{ reset_count }} {{ 'reset' if reset_count == 1 else 'resets' }} available{% if reset_expiry %} expiring in {{ duration_words(reset_expiry) }}{% endif %}.{% endif %}
 ```
 
 The duration calculation rounds up to the next whole unit so it matches Home
 Assistant's relative timestamp display, for example `In 3 hours` rather than a
 floored `2 hours` while the reset is still more than two hours away.
 
-Example output:
+Example output without resets:
 
 ```text
 88% remaining for 4 hours.
 33% remaining for 4 days.
+```
+
+Example output with a reset:
+
+```text
+88% remaining for 4 hours.
+33% remaining for 4 days.
+1 reset available expiring in 21 days.
 ```
 
 ## Testing
@@ -268,5 +405,6 @@ listen to the relevant topics:
 
 ```bash
 mosquitto_sub -h 127.0.0.1 -u telegraf -P '...' -v -t 'telegraf/codex_usage_windows/#'
+mosquitto_sub -h 127.0.0.1 -u telegraf -P '...' -v -t 'telegraf/codex_usage_resets/#'
 mosquitto_sub -h 127.0.0.1 -u telegraf -P '...' -v -t 'homeassistant/sensor/#'
 ```
