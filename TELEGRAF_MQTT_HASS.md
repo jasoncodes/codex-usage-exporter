@@ -237,7 +237,8 @@ different ones for your MQTT discovery sensors:
     {{ minutes }} {{ 'minute' if minutes == 1 else 'minutes' }}
   {%- endif -%}
 {%- endmacro %}
-{{ (100 - five_used) | round(0) | int }}% remaining for {{ duration_words(five_reset) }}. {{ (100 - week_used) | round(0) | int }}% remaining for {{ duration_words(week_reset) }}.
+{{ (100 - five_used) | round(0) | int }}% remaining for {{ duration_words(five_reset) }}.
+{{ (100 - week_used) | round(0) | int }}% remaining for {{ duration_words(week_reset) }}.
 ```
 
 The duration calculation rounds up to the next whole unit so it matches Home
@@ -247,7 +248,8 @@ floored `2 hours` while the reset is still more than two hours away.
 Example output:
 
 ```text
-88% remaining for 4 hours. 33% remaining for 4 days.
+88% remaining for 4 hours.
+33% remaining for 4 days.
 ```
 
 ## Testing
