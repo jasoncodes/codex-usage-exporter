@@ -221,8 +221,8 @@ different ones for your MQTT discovery sensors:
 ```jinja
 {% set five_used = states('sensor.codex_usage_openai_example_com_codex_5h_used') | float(0) %}
 {% set week_used = states('sensor.codex_usage_openai_example_com_codex_1w_used') | float(0) %}
-{% set five_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_5h_reset')) %}
-{% set week_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_1w_reset')) %}
+{% set five_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_5h_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_5h_reset') else none %}
+{% set week_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_1w_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_1w_reset') else none %}
 {% macro duration_words(dt) -%}
   {%- set seconds = ((dt - now()).total_seconds() | int(0)) if dt else 0 -%}
   {%- set seconds = [seconds, 0] | max -%}
