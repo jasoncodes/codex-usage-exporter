@@ -36,7 +36,7 @@ The included [`codex-usage.conf`](codex-usage.conf) contains:
 ```toml
 [[inputs.exec]]
   commands = [
-    "docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter:/data codex-usage-exporter"
+    ["docker", "run", "--rm", "-e", "CODEX_USAGE_OUTPUT=influx", "-v", "codex-usage-exporter:/data", "codex-usage-exporter"]
   ]
   interval = "5m"
   timeout = "30s"
@@ -55,7 +55,7 @@ Membership in the `docker` group is effectively root-equivalent. If you prefer n
 ```toml
 [[inputs.exec]]
   commands = [
-    "sudo /usr/bin/docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter:/data codex-usage-exporter"
+    ["sudo", "/usr/bin/docker", "run", "--rm", "-e", "CODEX_USAGE_OUTPUT=influx", "-v", "codex-usage-exporter:/data", "codex-usage-exporter"]
   ]
   interval = "5m"
   timeout = "30s"
