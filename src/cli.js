@@ -3,6 +3,11 @@
 
 const { spawn, spawnSync } = require("node:child_process");
 const { loadAuth } = require("./auth");
+const {
+  fetchPhotonMarkBoost,
+  loadPhotonMarkBoostToken,
+  normalizePhotonMarkBoost
+} = require("./photonmark");
 const { refreshAuth } = require("./refresh");
 const { fetchResetCredits, fetchUsage, normalizeUsage, UsageError } = require("./usage");
 const { toInflux } = require("./influx");
@@ -20,6 +25,7 @@ async function main(deps = {}) {
   const fetchImpl = deps.fetch || globalThis.fetch;
   const nowMs = deps.nowMs;
   const loadAuthFn = deps.loadAuth || loadAuth;
+  const loadPhotonMarkBoostTokenFn = deps.loadPhotonMarkBoostToken || loadPhotonMarkBoostToken;
 
   try {
     const output = outputFromEnv(env);
@@ -33,6 +39,7 @@ async function main(deps = {}) {
       nowMs,
       env,
       loadAuthFn,
+      loadPhotonMarkBoostTokenFn,
       refreshAuthFn: deps.refreshAuth || refreshAuth,
       spawnAsync
     });
@@ -103,6 +110,7 @@ async function printUsage({
   nowMs,
   env,
   loadAuthFn,
+  loadPhotonMarkBoostTokenFn,
   refreshAuthFn,
   spawnAsync
 }) {
@@ -112,15 +120,20 @@ async function printUsage({
     fetchImpl,
     nowMs,
     loadAuthFn,
+    loadPhotonMarkBoostTokenFn,
     refreshAuthFn,
     spawnAsync
   });
 
   if (output === "raw") {
-    stdout.write(`${JSON.stringify({
+    const raw = {
       usage: usage.payload,
       rate_limit_reset_credits: resetCredits.payload
-    })}\n`);
+    };
+    if (usage.photonmarkBoost) {
+      raw.photonmark_boost = usage.photonmarkBoost.payload;
+    }
+    stdout.write(`${JSON.stringify(raw)}\n`);
     return;
   }
 
@@ -129,6 +142,12 @@ async function printUsage({
     resetCreditsPayload: resetCredits.payload,
     timestamp: usage.timestamp
   });
+  if (usage.photonmarkBoost) {
+    const photonmarkBoost = normalizePhotonMarkBoost(usage.photonmarkBoost.payload);
+    if (photonmarkBoost) {
+      normalized.photonmark_boost = photonmarkBoost;
+    }
+  }
 
   if (output === "influx") {
     stdout.write(`${toInflux(normalized)}\n`);
@@ -176,7 +195,12 @@ async function fetchUsageWithRefresh(auth, deps) {
 async function fetchBackendData(auth, deps) {
   const usage = await fetchUsage(auth, { fetch: deps.fetchImpl, nowMs: deps.nowMs });
   const resetCredits = await fetchResetCredits(auth, { fetch: deps.fetchImpl, nowMs: deps.nowMs });
-  return { usage, resetCredits };
+  const loadPhotonMarkBoostTokenFn = deps.loadPhotonMarkBoostTokenFn || loadPhotonMarkBoostToken;
+  const photonmarkBoostToken = loadPhotonMarkBoostTokenFn();
+  const photonmarkBoost = photonmarkBoostToken.ok
+    ? await fetchPhotonMarkBoost(photonmarkBoostToken.token, { fetch: deps.fetchImpl, nowMs: deps.nowMs })
+    : undefined;
+  return { usage: { ...usage, photonmarkBoost }, resetCredits };
 }
 
 function formatError(error) {

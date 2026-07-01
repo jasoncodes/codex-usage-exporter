@@ -103,6 +103,90 @@ test("raw output passes backend payload through", async () => {
   });
 });
 
+test("absent PhotonMark Boost token does not fetch boost status", async () => {
+  const stdout = buffer();
+  const fetchedUrls = [];
+  const code = await main({
+    env: {},
+    stdin: { isTTY: false },
+    stdout,
+    stderr: buffer(),
+    loadAuth: () => auth(),
+    loadPhotonMarkBoostToken: () => ({ ok: false, reason: "missing_token" }),
+    fetch: async (url) => {
+      fetchedUrls.push(String(url));
+      return routedResponse(url);
+    }
+  });
+
+  assert.equal(code, 0);
+  assert.equal(fetchedUrls.some((url) => url.includes("photonmark")), false);
+  assert.equal(JSON.parse(stdout.value).photonmark_boost, undefined);
+});
+
+test("raw output includes PhotonMark Boost payload when token exists", async () => {
+  const stdout = buffer();
+  const payload = { hello: "world", rate_limit: sampleRateLimit() };
+  const resetPayload = sampleResetCredits();
+  const boostPayload = samplePhotonMarkBoost();
+  const code = await main({
+    env: { CODEX_USAGE_OUTPUT: "raw" },
+    stdin: { isTTY: false },
+    stdout,
+    stderr: buffer(),
+    loadAuth: () => auth(),
+    loadPhotonMarkBoostToken: () => ({ ok: true, token: "boost-token" }),
+    fetch: async (url, options) => {
+      if (String(url).includes("photonmark")) {
+        assert.equal(options.headers.Authorization, "Bearer boost-token");
+        return jsonResponse(boostPayload);
+      }
+      return jsonResponse(String(url).includes("rate-limit-reset-credits") ? resetPayload : payload);
+    }
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.value), {
+    usage: payload,
+    rate_limit_reset_credits: resetPayload,
+    photonmark_boost: boostPayload
+  });
+});
+
+test("json output includes normalized PhotonMark Boost data when token exists", async () => {
+  const stdout = buffer();
+  const code = await main({
+    env: {},
+    stdin: { isTTY: false },
+    stdout,
+    stderr: buffer(),
+    nowMs: 1000000,
+    loadAuth: () => auth(),
+    loadPhotonMarkBoostToken: () => ({ ok: true, token: "boost-token" }),
+    fetch: async (url) => routedResponse(url)
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(JSON.parse(stdout.value).photonmark_boost, {
+    service: "boost",
+    service_name: "Codex Boost",
+    status: "active",
+    raw_status: "active",
+    active: true,
+    entitlement_id: 130,
+    email: "photonmark@example.com",
+    balance_usd: 30,
+    balance_usd_micros: 30000000,
+    prepaid_usd: 30,
+    prepaid_usd_micros: 30000000,
+    spent_usd: 0,
+    spent_usd_micros: 0,
+    expires_at: 1785458000,
+    seconds_remaining: 2589259,
+    as_of: 1782868740
+  });
+});
+
 test("CODEX_USAGE_OUTPUT selects output without CLI flags", async () => {
   const stdout = buffer();
   const code = await main({
@@ -123,6 +207,46 @@ test("CODEX_USAGE_OUTPUT selects output without CLI flags", async () => {
     stdout.value,
     /^codex_usage_resets,email=person@example.com available_count=1i,next_granted_at=500i,next_expires_at=1800i,next_expires_after_seconds=800i 1000000000000/m
   );
+});
+
+test("influx output includes PhotonMark Boost measurement when token exists", async () => {
+  const stdout = buffer();
+  const code = await main({
+    env: { CODEX_USAGE_OUTPUT: "influx" },
+    stdin: { isTTY: false },
+    stdout,
+    stderr: buffer(),
+    loadAuth: () => auth(),
+    loadPhotonMarkBoostToken: () => ({ ok: true, token: "boost-token" }),
+    fetch: async (url) => routedResponse(url)
+  });
+
+  assert.equal(code, 0);
+  assert.match(
+    stdout.value,
+    /^codex_usage_photonmark_boost,email=person@example.com proxy_user="photonmark@example.com",active=1i,entitlement_id=130i,balance_usd=30,prepaid_usd=30,spent_usd=0,expires_at=1785458000i,seconds_remaining=2589259i 1000000000000/m
+  );
+});
+
+test("PhotonMark Boost fetch failure fails the poll when token exists", async () => {
+  const stderr = buffer();
+  const code = await main({
+    env: {},
+    stdin: { isTTY: false },
+    stdout: buffer(),
+    stderr,
+    loadAuth: () => auth(),
+    loadPhotonMarkBoostToken: () => ({ ok: true, token: "boost-token" }),
+    fetch: async (url) => {
+      if (String(url).includes("photonmark")) {
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      return routedResponse(url);
+    }
+  });
+
+  assert.equal(code, 1);
+  assert.equal(stderr.value, "PhotonMark Boost request failed with HTTP 503.\n");
 });
 
 test("authentication failure refreshes Codex auth and retries once", async () => {
@@ -205,6 +329,10 @@ function resetCreditsResponse() {
   return jsonResponse(sampleResetCredits());
 }
 
+function photonMarkBoostResponse() {
+  return jsonResponse(samplePhotonMarkBoost());
+}
+
 function jsonResponse(payload) {
   return {
     ok: true,
@@ -215,6 +343,9 @@ function jsonResponse(payload) {
 }
 
 function routedResponse(url) {
+  if (String(url).includes("photonmark")) {
+    return photonMarkBoostResponse();
+  }
   return String(url).includes("rate-limit-reset-credits") ? resetCreditsResponse() : response();
 }
 
@@ -241,6 +372,27 @@ function sampleRateLimit() {
     limit_reached: false,
     primary_window: { used_percent: 2, limit_window_seconds: 18000, reset_after_seconds: 10 },
     secondary_window: { used_percent: 27, limit_window_seconds: 604800, reset_after_seconds: 20 }
+  };
+}
+
+function samplePhotonMarkBoost() {
+  return {
+    service: "boost",
+    service_name: "Codex Boost",
+    status: "active",
+    raw_status: "active",
+    active: true,
+    entitlement_id: 130,
+    proxy_user: "photonmark@example.com",
+    balance_usd: "30.0000",
+    balance_usd_micros: 30000000,
+    prepaid_usd: "30.0000",
+    prepaid_usd_micros: 30000000,
+    spent_usd: "0.0000",
+    spent_usd_micros: 0,
+    expires_at: "2026-07-31T00:33:20+00:00",
+    seconds_remaining: 2589259,
+    as_of: "2026-07-01T01:19:00+00:00"
   };
 }
 

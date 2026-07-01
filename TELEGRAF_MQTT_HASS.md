@@ -264,6 +264,142 @@ def apply(metric):
 '''
 ```
 
+## PhotonMark Boost Processor
+
+```toml
+[[processors.starlark]]
+  alias = "codex_usage_photonmark_boost_mqtt"
+  namepass = ["codex_usage_photonmark_boost"]
+  source = '''
+load("json.star", "json")
+load("time.star", "time")
+
+def topic_part(value):
+    return str(value).lower().replace("/", "_").replace("+", "_").replace("#", "_").replace(" ", "_")
+
+def object_id_part(value):
+    return topic_part(value).replace("@", "_").replace(".", "_").replace(":", "_")
+
+def iso_from_unix_seconds(value):
+    if value == None:
+        return None
+    return time.from_timestamp(int(value)).format("2006-01-02T15:04:05Z07:00")
+
+def mqtt_metric(topic, payload, retain=False):
+    name = "mqtt_output_retain" if retain else "mqtt_output"
+    m = Metric(name)
+    m.tags["topic"] = topic
+    m.fields["payload"] = payload
+    return m
+
+def sensor_discovery(topic, unique_id, name, state_topic, value_template, device, unit=None, device_class=None, state_class=None, suggested_display_precision=None):
+    payload = {
+        "name": name,
+        "unique_id": unique_id,
+        "state_topic": state_topic,
+        "value_template": value_template,
+        "device": device,
+    }
+
+    if unit != None:
+        payload["unit_of_measurement"] = unit
+    if device_class != None:
+        payload["device_class"] = device_class
+    if state_class != None:
+        payload["state_class"] = state_class
+
+    if suggested_display_precision != None:
+        payload["suggested_display_precision"] = suggested_display_precision
+
+    return mqtt_metric(topic, json.encode(payload), True)
+
+def apply(metric):
+    email = metric.tags.get("email", "")
+
+    if not email:
+        return metric
+
+    email_topic = topic_part(email)
+    email_id = object_id_part(email)
+
+    state_topic = "telegraf/codex_usage_photonmark_boost/" + email_topic
+    object_prefix = "codex_usage_photonmark_boost_" + email_id
+    discovery_prefix = "homeassistant/sensor/" + object_prefix
+
+    collected_at = int(metric.time / 1000000000)
+    payload = {
+        "timestamp": iso_from_unix_seconds(collected_at),
+    }
+
+    for key, value in metric.fields.items():
+        if key == "expires_at":
+            payload[key] = iso_from_unix_seconds(value)
+        else:
+            payload[key] = value
+
+    device = {
+        "identifiers": ["codex_usage_exporter_" + email_id],
+        "name": "Codex Usage " + email,
+        "manufacturer": "OpenAI",
+        "model": "Codex Usage Exporter",
+    }
+
+    return [
+        metric,
+        mqtt_metric(state_topic, json.encode(payload)),
+
+        sensor_discovery(
+            discovery_prefix + "_balance_usd/config",
+            object_prefix + "_balance_usd",
+            "boost balance",
+            state_topic,
+            "{{ value_json.balance_usd }}",
+            device,
+            unit="$",
+            device_class="monetary",
+            state_class="total",
+            suggested_display_precision=2,
+        ),
+
+        sensor_discovery(
+            discovery_prefix + "_prepaid_usd/config",
+            object_prefix + "_prepaid_usd",
+            "boost prepaid",
+            state_topic,
+            "{{ value_json.prepaid_usd }}",
+            device,
+            unit="$",
+            device_class="monetary",
+            state_class="total",
+            suggested_display_precision=2,
+        ),
+
+        sensor_discovery(
+            discovery_prefix + "_spent_usd/config",
+            object_prefix + "_spent_usd",
+            "boost spent",
+            state_topic,
+            "{{ value_json.spent_usd }}",
+            device,
+            unit="$",
+            device_class="monetary",
+            state_class="total",
+            suggested_display_precision=2,
+        ),
+
+        sensor_discovery(
+            discovery_prefix + "_expires_at/config",
+            object_prefix + "_expires_at",
+            "boost expires",
+            state_topic,
+            "{{ value_json.expires_at }}",
+            device,
+            device_class="timestamp",
+        ),
+    ]
+'''
+```
+
 ## Published Topics
 
 The state messages are not retained:
@@ -272,6 +408,7 @@ The state messages are not retained:
 telegraf/codex_usage_windows/openai@example.com/primary
 telegraf/codex_usage_windows/openai@example.com/secondary
 telegraf/codex_usage_resets/openai@example.com
+telegraf/codex_usage_photonmark_boost/openai@example.com
 ```
 
 Example state payload:
@@ -298,6 +435,22 @@ Example reset state payload:
 }
 ```
 
+Example PhotonMark Boost state payload:
+
+```json
+{
+  "active": 1,
+  "balance_usd": 29.67,
+  "entitlement_id": 130,
+  "expires_at": "2026-07-31T10:33:20+10:00",
+  "prepaid_usd": 30,
+  "proxy_user": "photonmark@example.com",
+  "seconds_remaining": 2589259,
+  "spent_usd": 0.33,
+  "timestamp": "2026-07-01T11:19:00+10:00"
+}
+```
+
 The Home Assistant discovery messages are retained:
 
 ```text
@@ -307,10 +460,15 @@ homeassistant/sensor/codex_usage_windows_openai_example_com_secondary_used_perce
 homeassistant/sensor/codex_usage_windows_openai_example_com_secondary_reset_at/config
 homeassistant/sensor/codex_usage_resets_openai_example_com_available_count/config
 homeassistant/sensor/codex_usage_resets_openai_example_com_next_expires_at/config
+homeassistant/sensor/codex_usage_photonmark_boost_openai_example_com_balance_usd/config
+homeassistant/sensor/codex_usage_photonmark_boost_openai_example_com_prepaid_usd/config
+homeassistant/sensor/codex_usage_photonmark_boost_openai_example_com_spent_usd/config
+homeassistant/sensor/codex_usage_photonmark_boost_openai_example_com_expires_at/config
 ```
 
-Home Assistant should discover six sensors under the `Codex Usage <email>`
-device:
+Home Assistant should discover six base sensors under the `Codex Usage <email>`
+device, plus four optional Boost sensors on the same device when Boost export is
+enabled:
 
 ```text
 5h used
@@ -319,6 +477,10 @@ device:
 1w reset
 resets available
 next reset expires
+boost balance
+boost prepaid
+boost spent
+boost expires
 ```
 
 Because the discovery payloads include `unique_id`, Home Assistant will register
@@ -351,6 +513,9 @@ different ones for your MQTT discovery sensors:
 {% set five_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_5h_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_5h_reset') else none %}
 {% set week_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_1w_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_1w_reset') else none %}
 {% set reset_expiry = as_datetime(states('sensor.codex_usage_openai_example_com_next_reset_expires')) if has_value('sensor.codex_usage_openai_example_com_next_reset_expires') else none %}
+{% set boost_balance_entity = 'sensor.codex_usage_openai_example_com_boost_balance' %}
+{% set boost_expires_entity = 'sensor.codex_usage_openai_example_com_boost_expires' %}
+{% set boost_available = has_value(boost_balance_entity) and has_value(boost_expires_entity) %}
 {% macro duration_words(dt) -%}
   {%- set seconds = ((dt - now()).total_seconds() | int(0)) if dt else 0 -%}
   {%- set seconds = [seconds, 0] | max -%}
@@ -368,6 +533,12 @@ different ones for your MQTT discovery sensors:
 {{ (100 - five_used) | round(0) | int }}% remaining for {{ duration_words(five_reset) }}.
 {{ (100 - week_used) | round(0) | int }}% remaining for {{ duration_words(week_reset) }}.
 {% if reset_count > 0 %}{{ reset_count }} {{ 'reset' if reset_count == 1 else 'resets' }} available{% if reset_expiry %} expiring in {{ duration_words(reset_expiry) }}{% endif %}.{% endif %}
+{%- if boost_available %}
+{% set boost_balance = states(boost_balance_entity) | float(0) -%}
+{% set boost_expires = as_datetime(states(boost_expires_entity)) -%}
+
+${{ "%.2f" | format(boost_balance) }} boost expiring in {{ duration_words(boost_expires) }}.
+{%- endif %}
 ```
 
 The duration calculation rounds up to the next whole unit so it matches Home
@@ -387,6 +558,7 @@ Example output with a reset:
 88% remaining for 4 hours.
 33% remaining for 4 days.
 1 reset available expiring in 21 days.
+$29.67 boost expiring in 29 days.
 ```
 
 ## Testing
@@ -406,5 +578,6 @@ listen to the relevant topics:
 ```bash
 mosquitto_sub -h 127.0.0.1 -u telegraf -P '...' -v -t 'telegraf/codex_usage_windows/#'
 mosquitto_sub -h 127.0.0.1 -u telegraf -P '...' -v -t 'telegraf/codex_usage_resets/#'
+mosquitto_sub -h 127.0.0.1 -u telegraf -P '...' -v -t 'telegraf/codex_usage_photonmark_boost/#'
 mosquitto_sub -h 127.0.0.1 -u telegraf -P '...' -v -t 'homeassistant/sensor/#'
 ```

@@ -34,6 +34,24 @@ function toInflux(payload, options = {}) {
     lines.push(`codex_usage_resets,${tags} ${fields} ${timestamp}`);
   }
 
+  const photonmarkBoost = payload.photonmark_boost;
+  if (photonmarkBoost && photonmarkBoost.email) {
+    const tags = `email=${escapeTag(email)}`;
+    const fields = [
+      stringField("proxy_user", photonmarkBoost.email),
+      optionalBooleanIntegerField("active", photonmarkBoost.active),
+      optionalIntegerField("entitlement_id", photonmarkBoost.entitlement_id),
+      optionalField("balance_usd", photonmarkBoost.balance_usd),
+      optionalField("prepaid_usd", photonmarkBoost.prepaid_usd),
+      optionalField("spent_usd", photonmarkBoost.spent_usd),
+      optionalIntegerField("expires_at", photonmarkBoost.expires_at),
+      optionalIntegerField("seconds_remaining", photonmarkBoost.seconds_remaining)
+    ].filter(Boolean).join(",");
+    if (fields) {
+      lines.push(`codex_usage_photonmark_boost,${tags} ${fields} ${timestamp}`);
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -70,6 +88,25 @@ function optionalIntegerField(name, value) {
   return value === undefined || value === null ? undefined : integerField(name, value);
 }
 
+function optionalField(name, value) {
+  return value === undefined || value === null ? undefined : field(name, value);
+}
+
+function optionalBooleanIntegerField(name, value) {
+  return typeof value === "boolean" ? integerField(name, value ? 1 : 0) : optionalIntegerField(name, value);
+}
+
+function stringField(name, value) {
+  if (value === undefined || value === null) {
+    throw new Error(`Influx field ${name} must be a string.`);
+  }
+  return `${name}="${escapeStringField(value)}"`;
+}
+
+function escapeStringField(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function escapeTag(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/ /g, "\\ ").replace(/=/g, "\\=");
 }
@@ -78,6 +115,8 @@ module.exports = {
   toInflux,
   timestampNs,
   integerField,
+  optionalField,
   optionalIntegerField,
+  stringField,
   escapeTag
 };
