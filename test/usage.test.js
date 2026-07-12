@@ -267,6 +267,32 @@ test("normalizeUsage accepts rate_limits array shape", () => {
   assert.equal(normalized.rate_limit.secondary_window.limit_window_seconds, 604800);
 });
 
+test("normalizeUsage accepts any available window without requiring primary and secondary", () => {
+  const normalized = normalizeUsage(
+    {
+      rate_limit: {
+        weekly_window: {
+          used_percent: 9,
+          limit_window_seconds: 604800,
+          reset_after_seconds: 100
+        }
+      }
+    },
+    { timestamp: 1000 }
+  );
+
+  assert.deepEqual(normalized.rate_limit, {
+    allowed: true,
+    limit_reached: false,
+    weekly_window: {
+      used_percent: 9,
+      limit_window_seconds: 604800,
+      reset_after_seconds: 100,
+      reset_at: 1100
+    }
+  });
+});
+
 function sampleRateLimit() {
   return {
     primary_window: { used_percent: 2, limit_window_seconds: 18000, reset_after_seconds: 1 },

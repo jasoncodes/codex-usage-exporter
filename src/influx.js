@@ -4,15 +4,14 @@ function toInflux(payload, options = {}) {
   const timestamp = options.timestampNs || timestampNs(payload.timestamp);
   const email = payload.email || "unknown";
   const rateLimit = payload.rate_limit || {};
-  const windows = [
-    ["primary", rateLimit.primary_window],
-    ["secondary", rateLimit.secondary_window]
-  ];
+  const windows = Object.entries(rateLimit)
+    .filter(([, window]) => window && typeof window === "object");
 
   const lines = windows
     .filter(([, window]) => window)
     .map(([name, window]) => {
-      const tags = `email=${escapeTag(email)},window=${escapeTag(name)}`;
+      const windowName = name.endsWith("_window") ? name.slice(0, -"_window".length) : name;
+      const tags = `email=${escapeTag(email)},window=${escapeTag(windowName)}`;
       const fields = [
         field("used_percent", window.used_percent),
         integerField("limit_window_seconds", window.limit_window_seconds),

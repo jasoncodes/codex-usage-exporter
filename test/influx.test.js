@@ -60,3 +60,23 @@ test("toInflux emits primary and secondary rows", () => {
     ].join("\n")
   );
 });
+
+test("toInflux emits whichever windows are present", () => {
+  const output = toInflux({
+    timestamp: 1000,
+    email: "person@example.com",
+    rate_limit: {
+      weekly_window: {
+        used_percent: 9,
+        limit_window_seconds: 604800,
+        reset_after_seconds: 100,
+        reset_at: 1100
+      }
+    }
+  });
+
+  assert.equal(
+    output,
+    "codex_usage_windows,email=person@example.com,window=weekly used_percent=9,limit_window_seconds=604800i,reset_after_seconds=100i,reset_at=1100i 1000000000000"
+  );
+});

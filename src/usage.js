@@ -98,11 +98,10 @@ function normalizeUsage(payload, context = {}) {
     });
   }
 
-  const primary = normalizeWindow(source.primary_window || source.primary, nowSeconds);
-  const secondary = normalizeWindow(source.secondary_window || source.secondary, nowSeconds);
+  const windows = normalizeWindows(source, nowSeconds);
 
-  if (!primary || !secondary) {
-    throw new UsageError("Usage response did not contain primary and secondary windows.", {
+  if (Object.keys(windows).length === 0) {
+    throw new UsageError("Usage response did not contain any usable rate limit windows.", {
       code: "missing_windows"
     });
   }
@@ -116,8 +115,7 @@ function normalizeUsage(payload, context = {}) {
         source.limit_reached,
         booleanWithDefault(source.rate_limit_reached, !inferAllowed(source))
       ),
-      primary_window: primary,
-      secondary_window: secondary
+      ...windows
     }
   };
 
@@ -143,7 +141,7 @@ function findRateLimitSource(payload) {
   if (payload.rateLimit) {
     return payload.rateLimit;
   }
-  if (payload.primary || payload.primary_window) {
+  if (hasWindowEntries(payload)) {
     return payload;
   }
   if (Array.isArray(payload.rate_limits) && payload.rate_limits.length > 0) {
@@ -154,6 +152,58 @@ function findRateLimitSource(payload) {
   }
 
   return undefined;
+}
+
+function normalizeWindows(source, nowSeconds) {
+  const entries = [];
+
+  if (source.windows && typeof source.windows === "object") {
+    if (Array.isArray(source.windows)) {
+      for (const item of source.windows) {
+        if (!item || typeof item !== "object") {
+          continue;
+        }
+        const name = item.name || item.key || item.id || item.window_name || item.windowName;
+        const value = item.window && typeof item.window === "object" ? item.window : item;
+        if (name) {
+          entries.push([String(name), value]);
+        }
+      }
+    } else {
+      entries.push(...Object.entries(source.windows));
+    }
+  }
+
+  for (const [key, value] of Object.entries(source)) {
+    if (key === "windows" || !isWindowKey(key)) {
+      continue;
+    }
+    entries.push([key, value]);
+  }
+
+  const normalized = {};
+  for (const [name, value] of entries) {
+    const window = normalizeWindow(value, nowSeconds);
+    if (window) {
+      normalized[canonicalWindowName(name)] = window;
+    }
+  }
+  return normalized;
+}
+
+function hasWindowEntries(payload) {
+  return Object.keys(payload).some((key) => isWindowKey(key))
+    || (payload.windows && typeof payload.windows === "object");
+}
+
+function isWindowKey(key) {
+  return key === "primary"
+    || key === "secondary"
+    || key.endsWith("_window");
+}
+
+function canonicalWindowName(name) {
+  return name === "primary" || name === "secondary" ? `${name}_window` : name;
 }
 
 function normalizeWindow(window, nowSeconds) {
