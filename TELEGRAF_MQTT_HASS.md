@@ -65,6 +65,27 @@ def iso_from_unix_seconds(value):
         return None
     return time.from_timestamp(int(value)).format("2006-01-02T15:04:05Z07:00")
 
+def duration_name(value, fallback):
+    if value == None:
+        return fallback
+
+    seconds = int(value)
+    if seconds > 0 and seconds % 604800 == 0:
+        weeks = seconds // 604800
+        return str(weeks) + (" week" if weeks == 1 else " weeks")
+    if seconds > 0 and seconds % 86400 == 0:
+        days = seconds // 86400
+        return str(days) + (" day" if days == 1 else " days")
+    if seconds > 0 and seconds % 3600 == 0:
+        hours = seconds // 3600
+        return str(hours) + (" hour" if hours == 1 else " hours")
+    if seconds > 0 and seconds % 60 == 0:
+        minutes = seconds // 60
+        return str(minutes) + (" minute" if minutes == 1 else " minutes")
+    if seconds > 0:
+        return str(seconds) + (" second" if seconds == 1 else " seconds")
+    return fallback
+
 def mqtt_metric(topic, payload, retain=False):
     name = "mqtt_output_retain" if retain else "mqtt_output"
     m = Metric(name)
@@ -72,12 +93,15 @@ def mqtt_metric(topic, payload, retain=False):
     m.fields["payload"] = payload
     return m
 
-def sensor_discovery(topic, unique_id, name, state_topic, value_template, device, unit=None, device_class=None, state_class=None, suggested_display_precision=None):
+def sensor_discovery(topic, unique_id, default_entity_id, name, state_topic, value_template, device, unit=None, device_class=None, state_class=None, suggested_display_precision=None):
     payload = {
         "name": name,
         "unique_id": unique_id,
+        "default_entity_id": default_entity_id,
         "state_topic": state_topic,
         "value_template": value_template,
+        "json_attributes_topic": state_topic,
+        "expire_after": 900,
         "device": device,
     }
 
@@ -125,7 +149,8 @@ def apply(metric):
         "model": "Codex Usage Exporter",
     }
 
-    window_name = "5h" if window == "primary" else "1w" if window == "secondary" else window
+    window_name = duration_name(metric.fields.get("limit_window_seconds"), window)
+    entity_prefix = "sensor.codex_usage_" + email_id + "_" + window_id
 
     return [
         metric,
@@ -134,6 +159,7 @@ def apply(metric):
         sensor_discovery(
             discovery_prefix + "_used_percent/config",
             object_prefix + "_used_percent",
+            entity_prefix + "_used",
             window_name + " used",
             state_topic,
             "{{ value_json.used_percent }}",
@@ -146,6 +172,7 @@ def apply(metric):
         sensor_discovery(
             discovery_prefix + "_reset_at/config",
             object_prefix + "_reset_at",
+            entity_prefix + "_reset",
             window_name + " reset",
             state_topic,
             "{{ value_json.reset_at }}",
@@ -466,15 +493,39 @@ homeassistant/sensor/codex_usage_photonmark_boost_openai_example_com_spent_usd/c
 homeassistant/sensor/codex_usage_photonmark_boost_openai_example_com_expires_at/config
 ```
 
-Home Assistant should discover six base sensors under the `Codex Usage <email>`
-device, plus four optional Boost sensors on the same device when Boost export is
-enabled:
+Window sensor discovery uses each point's `limit_window_seconds` field for its
+display name. For example, a `604800`-second `primary` window is named `1 week`
+rather than assuming every primary window is five hours. The discovery payload
+also gives each window role a stable default entity ID:
 
 ```text
-5h used
-5h reset
-1w used
-1w reset
+sensor.codex_usage_openai_example_com_primary_used
+sensor.codex_usage_openai_example_com_primary_reset
+sensor.codex_usage_openai_example_com_secondary_used
+sensor.codex_usage_openai_example_com_secondary_reset
+```
+
+`default_entity_id` is applied when Home Assistant first creates an entity. It
+does not override an entity ID already stored in Home Assistant's entity
+registry.
+
+Window sensors use `expire_after = 900`, three times the five-minute collection
+interval. If a window disappears from the exporter output, its existing Home
+Assistant entities become unavailable after 15 minutes and become available
+again if the window returns. The state JSON is also exposed as entity attributes
+through `json_attributes_topic`, including `limit_window_seconds` for status
+templates that need a duration-derived label.
+
+Home Assistant discovers two sensors for every window currently emitted under
+the `Codex Usage <email>` device, plus two reset sensors and four optional Boost
+sensors on the same device when Boost export is enabled. For a five-hour primary
+and one-week secondary window, the display names are:
+
+```text
+5 hours used
+5 hours reset
+1 week used
+1 week reset
 resets available
 next reset expires
 boost balance
@@ -503,19 +554,20 @@ Name: Status
 Device: Codex Usage <email>
 ```
 
-Use this state template, adjusting the entity IDs if Home Assistant generated
-different ones for your MQTT discovery sensors:
+Use this state template, adjusting the account portion of the entity IDs. It
+uses the role-based default entity IDs from MQTT discovery and omits any window
+whose used and reset sensors are unavailable:
 
 ```jinja
-{% set five_used = states('sensor.codex_usage_openai_example_com_codex_5h_used') | float(0) %}
-{% set week_used = states('sensor.codex_usage_openai_example_com_codex_1w_used') | float(0) %}
+{% set primary_used_entity = 'sensor.codex_usage_openai_example_com_primary_used' %}
+{% set primary_reset_entity = 'sensor.codex_usage_openai_example_com_primary_reset' %}
+{% set secondary_used_entity = 'sensor.codex_usage_openai_example_com_secondary_used' %}
+{% set secondary_reset_entity = 'sensor.codex_usage_openai_example_com_secondary_reset' %}
 {% set reset_count = states('sensor.codex_usage_openai_example_com_resets_available') | int(0) %}
-{% set five_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_5h_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_5h_reset') else none %}
-{% set week_reset = as_datetime(states('sensor.codex_usage_openai_example_com_codex_1w_reset')) if has_value('sensor.codex_usage_openai_example_com_codex_1w_reset') else none %}
 {% set reset_expiry = as_datetime(states('sensor.codex_usage_openai_example_com_next_reset_expires')) if has_value('sensor.codex_usage_openai_example_com_next_reset_expires') else none %}
 {% set boost_balance_entity = 'sensor.codex_usage_openai_example_com_boost_balance' %}
 {% set boost_expires_entity = 'sensor.codex_usage_openai_example_com_boost_expires' %}
-{% set boost_available = has_value(boost_balance_entity) and has_value(boost_expires_entity) %}
+{% set ns = namespace(lines=[]) %}
 {% macro duration_words(dt) -%}
   {%- set seconds = ((dt - now()).total_seconds() | int(0)) if dt else 0 -%}
   {%- set seconds = [seconds, 0] | max -%}
@@ -530,15 +582,29 @@ different ones for your MQTT discovery sensors:
     {{ minutes }} {{ 'minute' if minutes == 1 else 'minutes' }}
   {%- endif -%}
 {%- endmacro %}
-{{ (100 - five_used) | round(0) | int }}% remaining for {{ duration_words(five_reset) }}.
-{{ (100 - week_used) | round(0) | int }}% remaining for {{ duration_words(week_reset) }}.
-{% if reset_count > 0 %}{{ reset_count }} {{ 'reset' if reset_count == 1 else 'resets' }} available{% if reset_expiry %} expiring in {{ duration_words(reset_expiry) }}{% endif %}.{% endif %}
-{%- if boost_available %}
-{% set boost_balance = states(boost_balance_entity) | float(0) -%}
-{% set boost_expires = as_datetime(states(boost_expires_entity)) -%}
-
-${{ "%.2f" | format(boost_balance) }} boost expiring in {{ duration_words(boost_expires) }}.
-{%- endif %}
+{% if has_value(primary_used_entity) and has_value(primary_reset_entity) %}
+  {% set used = states(primary_used_entity) | float(0) %}
+  {% set reset = as_datetime(states(primary_reset_entity)) %}
+  {% set ns.lines = ns.lines + [((100 - used) | round(0) | int | string) ~ '% remaining for ' ~ duration_words(reset) ~ '.'] %}
+{% endif %}
+{% if has_value(secondary_used_entity) and has_value(secondary_reset_entity) %}
+  {% set used = states(secondary_used_entity) | float(0) %}
+  {% set reset = as_datetime(states(secondary_reset_entity)) %}
+  {% set ns.lines = ns.lines + [((100 - used) | round(0) | int | string) ~ '% remaining for ' ~ duration_words(reset) ~ '.'] %}
+{% endif %}
+{% if reset_count > 0 %}
+  {% set reset_line = (reset_count | string) ~ ' ' ~ ('reset' if reset_count == 1 else 'resets') ~ ' available' %}
+  {% if reset_expiry %}
+    {% set reset_line = reset_line ~ ' expiring in ' ~ duration_words(reset_expiry) %}
+  {% endif %}
+  {% set ns.lines = ns.lines + [reset_line ~ '.'] %}
+{% endif %}
+{% if has_value(boost_balance_entity) and has_value(boost_expires_entity) %}
+  {% set boost_balance = states(boost_balance_entity) | float(0) %}
+  {% set boost_expires = as_datetime(states(boost_expires_entity)) %}
+  {% set ns.lines = ns.lines + ['$' ~ ("%.2f" | format(boost_balance)) ~ ' boost expiring in ' ~ duration_words(boost_expires) ~ '.'] %}
+{% endif %}
+{{ ns.lines | join('\n') }}
 ```
 
 The duration calculation rounds up to the next whole unit so it matches Home
