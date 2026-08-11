@@ -46,8 +46,14 @@ The included [`codex-usage.conf`](codex-usage.conf) contains:
   ]
   interval = "5m"
   timeout = "30s"
+  ignore_error = true
   data_format = "influx"
 ```
+
+In `influx` mode, the exporter emits every successful measurement before
+returning a non-zero status if one or more requests failed. `ignore_error =
+true` lets Telegraf parse those emitted Influx lines while still logging the
+failed collection.
 
 The Telegraf service user must be able to run Docker. On Debian this is usually the `telegraf` user. Use one of these approaches:
 
@@ -65,6 +71,7 @@ Membership in the `docker` group is effectively root-equivalent. If you prefer n
   ]
   interval = "5m"
   timeout = "30s"
+  ignore_error = true
   data_format = "influx"
 ```
 

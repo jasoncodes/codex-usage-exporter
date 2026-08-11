@@ -228,6 +228,57 @@ test("influx output includes PhotonMark Boost measurement when token exists", as
   );
 });
 
+test("influx output keeps successful measurements when a request fails", async () => {
+  const stdout = buffer();
+  const stderr = buffer();
+  const fetchedUrls = [];
+  const code = await main({
+    env: { CODEX_USAGE_OUTPUT: "influx" },
+    stdin: { isTTY: false },
+    stdout,
+    stderr,
+    loadAuth: () => auth(),
+    loadPhotonMarkBoostToken: () => ({ ok: true, token: "boost-token" }),
+    fetch: async (url) => {
+      fetchedUrls.push(String(url));
+      if (String(url).includes("rate-limit-reset-credits")) {
+        return errorResponse(429);
+      }
+      if (String(url).includes("photonmark")) {
+        return photonMarkBoostResponse();
+      }
+      return jsonResponse({ rate_limit: sampleRateLimit() });
+    }
+  });
+
+  assert.equal(code, 1);
+  assert.equal(fetchedUrls.length, 3);
+  assert.match(stdout.value, /^codex_usage_windows,/m);
+  assert.match(stdout.value, /^codex_usage_photonmark_boost,/m);
+  assert.doesNotMatch(stdout.value, /^codex_usage_resets,/m);
+  assert.equal(stderr.value, "Reset credits: Reset credits request failed with HTTP 429.\n");
+});
+
+test("influx output emits reset credits when usage fails", async () => {
+  const stdout = buffer();
+  const stderr = buffer();
+  const code = await main({
+    env: { CODEX_USAGE_OUTPUT: "influx" },
+    stdin: { isTTY: false },
+    stdout,
+    stderr,
+    loadAuth: () => auth(),
+    loadPhotonMarkBoostToken: () => ({ ok: false, reason: "missing_token" }),
+    fetch: async (url) => String(url).includes("rate-limit-reset-credits")
+      ? resetCreditsResponse()
+      : errorResponse(503)
+  });
+
+  assert.equal(code, 1);
+  assert.match(stdout.value, /^codex_usage_resets,email=person@example.com /m);
+  assert.equal(stderr.value, "Usage: Usage request failed with HTTP 503.\n");
+});
+
 test("PhotonMark Boost fetch failure fails the poll when token exists", async () => {
   const stderr = buffer();
   const code = await main({
@@ -339,6 +390,14 @@ function jsonResponse(payload) {
     status: 200,
     headers: new Headers({ date: "Thu, 01 Jan 1970 00:16:40 GMT" }),
     json: async () => payload
+  };
+}
+
+function errorResponse(status) {
+  return {
+    ok: false,
+    status,
+    headers: new Headers()
   };
 }
 

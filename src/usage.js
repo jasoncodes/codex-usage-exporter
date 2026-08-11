@@ -388,6 +388,7 @@ module.exports = {
   UsageError,
   fetchResetCredits,
   fetchUsage,
+  normalizeResetCredits,
   normalizeUsage,
   requestHeaders,
   responseTimestampSeconds
