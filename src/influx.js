@@ -7,19 +7,10 @@ function toInflux(payload, options = {}) {
   const windows = Object.entries(rateLimit)
     .filter(([, window]) => window && typeof window === "object");
 
-  const lines = windows
-    .filter(([, window]) => window)
-    .map(([name, window]) => {
-      const windowName = name.endsWith("_window") ? name.slice(0, -"_window".length) : name;
-      const tags = `email=${escapeTag(email)},window=${escapeTag(windowName)}`;
-      const fields = [
-        field("used_percent", window.used_percent),
-        integerField("limit_window_seconds", window.limit_window_seconds),
-        integerField("reset_after_seconds", window.reset_after_seconds),
-        integerField("reset_at", window.reset_at)
-      ].join(",");
-      return `codex_usage_windows,${tags} ${fields} ${timestamp}`;
-    });
+  const lines = windows.map(([name, window]) => {
+    const windowName = name.endsWith("_window") ? name.slice(0, -"_window".length) : name;
+    return windowLine(email, windowName, window, timestamp);
+  });
 
   const resetCredits = payload.rate_limit_reset_credits;
   if (resetCredits && resetCredits.available_count !== undefined) {
@@ -52,6 +43,17 @@ function toInflux(payload, options = {}) {
   }
 
   return lines.join("\n");
+}
+
+function windowLine(email, windowName, window, timestamp) {
+  const tags = `email=${escapeTag(email)},window=${escapeTag(windowName)}`;
+  const fields = [
+    field("used_percent", window.used_percent),
+    integerField("limit_window_seconds", window.limit_window_seconds),
+    integerField("reset_after_seconds", window.reset_after_seconds),
+    integerField("reset_at", window.reset_at)
+  ].join(",");
+  return `codex_usage_windows,${tags} ${fields} ${timestamp}`;
 }
 
 function timestampNs(timestampSeconds) {
