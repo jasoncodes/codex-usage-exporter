@@ -12,6 +12,19 @@ function toInflux(payload, options = {}) {
     return windowLine(email, windowName, window, timestamp);
   });
 
+  const additionalRateLimits = Array.isArray(payload.additional_rate_limits)
+    ? payload.additional_rate_limits
+    : [];
+  for (const additionalRateLimit of additionalRateLimits) {
+    if (additionalRateLimit && additionalRateLimit.limit_name === "gpt-reserve") {
+      const window = additionalRateLimit.rate_limit
+        && additionalRateLimit.rate_limit.primary_window;
+      if (window && typeof window === "object") {
+        lines.push(windowLine(email, "gpt-reserve-primary", window, timestamp));
+      }
+    }
+  }
+
   const resetCredits = payload.rate_limit_reset_credits;
   if (resetCredits && resetCredits.available_count !== undefined) {
     const tags = `email=${escapeTag(email)}`;

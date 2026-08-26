@@ -212,6 +212,82 @@ test("normalizeUsage emits normalized windows and derives reset_after_seconds", 
   });
 });
 
+test("normalizeUsage preserves additional rate limits and normalizes their windows", () => {
+  const normalized = normalizeUsage(
+    {
+      rate_limit: sampleRateLimit(),
+      additional_rate_limits: [
+        {
+          limit_name: "gpt-reserve",
+          metered_feature: "base_model_inference",
+          rate_limit: {
+            allowed: true,
+            limit_reached: false,
+            primary_window: {
+              used_percent: 0,
+              limit_window_seconds: 604800,
+              reset_after_seconds: 604800,
+              reset_at: 604900
+            },
+            secondary_window: null
+          }
+        }
+      ]
+    },
+    { timestamp: 100 }
+  );
+
+  assert.deepEqual(normalized.additional_rate_limits, [
+    {
+      limit_name: "gpt-reserve",
+      metered_feature: "base_model_inference",
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        primary_window: {
+          used_percent: 0,
+          limit_window_seconds: 604800,
+          reset_after_seconds: 604800,
+          reset_at: 604900
+        },
+        secondary_window: null
+      }
+    }
+  ]);
+});
+
+test("normalizeUsage retains additional-limit metadata when its windows are unusable", () => {
+  const normalized = normalizeUsage(
+    {
+      rate_limit: sampleRateLimit(),
+      additional_rate_limits: [
+        {
+          limit_name: "gpt-reserve",
+          metered_feature: "base_model_inference",
+          rate_limit: {
+            primary_window: null,
+            secondary_window: null
+          }
+        }
+      ]
+    },
+    { timestamp: 100 }
+  );
+
+  assert.deepEqual(normalized.additional_rate_limits, [
+    {
+      limit_name: "gpt-reserve",
+      metered_feature: "base_model_inference",
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        primary_window: null,
+        secondary_window: null
+      }
+    }
+  ]);
+});
+
 test("normalizeUsage accepts explicit timestamp", () => {
   const normalized = normalizeUsage(
     { rate_limit: sampleRateLimit() },

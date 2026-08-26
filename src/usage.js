@@ -119,6 +119,11 @@ function normalizeUsage(payload, context = {}) {
     }
   };
 
+  const additionalRateLimits = normalizeAdditionalRateLimits(payload, nowSeconds);
+  if (additionalRateLimits) {
+    normalized.additional_rate_limits = additionalRateLimits;
+  }
+
   const resetCredits = normalizeResetCredits(
     context.resetCreditsPayload || payload.rate_limit_reset_credits || payload.rateLimitResetCredits,
     nowSeconds
@@ -128,6 +133,39 @@ function normalizeUsage(payload, context = {}) {
   }
 
   return normalized;
+}
+
+function normalizeAdditionalRateLimits(payload, nowSeconds) {
+  if (!payload || !Array.isArray(payload.additional_rate_limits)) {
+    return undefined;
+  }
+
+  return payload.additional_rate_limits
+    .filter((entry) => entry && typeof entry === "object")
+    .map((entry) => {
+      const normalized = { ...entry };
+      const source = entry.rate_limit;
+
+      if (source && typeof source === "object") {
+        const windows = normalizeWindows(source, nowSeconds);
+        normalized.rate_limit = {
+          allowed: booleanWithDefault(source.allowed, inferAllowed(source)),
+          limit_reached: booleanWithDefault(
+            source.limit_reached,
+            booleanWithDefault(source.rate_limit_reached, !inferAllowed(source))
+          ),
+          ...windows
+        };
+        if (source.primary_window === null) {
+          normalized.rate_limit.primary_window = null;
+        }
+        if (source.secondary_window === null) {
+          normalized.rate_limit.secondary_window = null;
+        }
+      }
+
+      return normalized;
+    });
 }
 
 function findRateLimitSource(payload) {

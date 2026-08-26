@@ -91,7 +91,11 @@ test("missing auth with TTY runs device auth and fetches", async () => {
 
 test("raw output passes backend payload through", async () => {
   const stdout = buffer();
-  const payload = { hello: "world", rate_limit: sampleRateLimit() };
+  const payload = {
+    hello: "world",
+    rate_limit: sampleRateLimit(),
+    additional_rate_limits: sampleAdditionalRateLimits()
+  };
   const resetPayload = sampleResetCredits();
   const code = await main({
     env: { CODEX_USAGE_OUTPUT: "raw" },
@@ -107,6 +111,49 @@ test("raw output passes backend payload through", async () => {
     usage: payload,
     rate_limit_reset_credits: resetPayload
   });
+});
+
+test("json and pretty output include normalized additional rate limits", async () => {
+  for (const output of ["json", "pretty"]) {
+    const stdout = buffer();
+    const code = await main({
+      env: output === "json" ? {} : { CODEX_USAGE_OUTPUT: output },
+      stdin: { isTTY: false },
+      stdout,
+      stderr: buffer(),
+      nowMs: 1000000,
+      loadAuth: () => auth(),
+      fetch: async (url) => {
+        if (String(url).includes("rate-limit-reset-credits")) {
+          return resetCreditsResponse();
+        }
+        return jsonResponse({
+          rate_limit: sampleRateLimit(),
+          additional_rate_limits: sampleAdditionalRateLimits()
+        });
+      }
+    });
+
+    assert.equal(code, 0);
+    const parsed = JSON.parse(stdout.value);
+    assert.deepEqual(parsed.additional_rate_limits, [
+      {
+        limit_name: "gpt-reserve",
+        metered_feature: "base_model_inference",
+        rate_limit: {
+          allowed: true,
+          limit_reached: false,
+          primary_window: {
+            used_percent: 0,
+            limit_window_seconds: 604800,
+            reset_after_seconds: 604800,
+            reset_at: 1780727181
+          },
+          secondary_window: null
+        }
+      }
+    ]);
+  }
 });
 
 test("absent PhotonMark Boost token does not fetch boost status", async () => {
@@ -438,6 +485,26 @@ function sampleRateLimit() {
     primary_window: { used_percent: 2, limit_window_seconds: 18000, reset_after_seconds: 10 },
     secondary_window: { used_percent: 27, limit_window_seconds: 604800, reset_after_seconds: 20 }
   };
+}
+
+function sampleAdditionalRateLimits() {
+  return [
+    {
+      limit_name: "gpt-reserve",
+      metered_feature: "base_model_inference",
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        primary_window: {
+          used_percent: 0,
+          limit_window_seconds: 604800,
+          reset_after_seconds: 604800,
+          reset_at: 1780727181
+        },
+        secondary_window: null
+      }
+    }
+  ];
 }
 
 function samplePhotonMarkBoost() {

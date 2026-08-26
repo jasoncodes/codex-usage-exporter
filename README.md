@@ -93,11 +93,19 @@ docker run --rm -v codex-usage-exporter:/data codex-usage-exporter
 {"timestamp":1780199981,"email":"person@example.com","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":2,"limit_window_seconds":18000,"reset_after_seconds":17956,"reset_at":1780217937},"secondary_window":{"used_percent":27,"limit_window_seconds":604800,"reset_after_seconds":245230,"reset_at":1780445211}},"rate_limit_reset_credits":{"available_count":1,"credits":[{"id":"RateLimitResetCredit_1","reset_type":"codex_rate_limits","status":"available","title":"One free rate limit reset","granted_at":1780172548,"expires_at":1782764548,"expires_after_seconds":2564567}],"next_granted_at":1780172548,"next_expires_at":1782764548,"next_expires_after_seconds":2564567},"photonmark_boost":{"service":"boost","service_name":"Codex Boost","status":"active","raw_status":"active","active":true,"entitlement_id":130,"email":"photonmark@example.com","balance_usd":30,"balance_usd_micros":30000000,"prepaid_usd":30,"prepaid_usd_micros":30000000,"spent_usd":0,"spent_usd_micros":0,"expires_at":1785458000,"seconds_remaining":2589259,"as_of":1782868740}}
 ```
 
+When present, compact JSON also includes the normalized top-level
+`additional_rate_limits` array shown in the pretty JSON example below.
+
 Pretty JSON:
 
 ```bash
 docker run --rm -e CODEX_USAGE_OUTPUT=pretty -v codex-usage-exporter:/data codex-usage-exporter
 ```
+
+When the backend reports an additional limit, normalized JSON includes it as a
+top-level `additional_rate_limits` array alongside `rate_limit`. For example,
+the `gpt-reserve` entry retains its `limit_name` and `metered_feature`, with
+its normalized `rate_limit.primary_window`.
 
 ```json
 {
@@ -119,6 +127,22 @@ docker run --rm -e CODEX_USAGE_OUTPUT=pretty -v codex-usage-exporter:/data codex
       "reset_at": 1780445211
     }
   },
+  "additional_rate_limits": [
+    {
+      "limit_name": "gpt-reserve",
+      "metered_feature": "base_model_inference",
+      "rate_limit": {
+        "allowed": true,
+        "limit_reached": false,
+        "primary_window": {
+          "used_percent": 0,
+          "limit_window_seconds": 604800,
+          "reset_after_seconds": 604800,
+          "reset_at": 1780783921
+        }
+      }
+    }
+  ],
   "rate_limit_reset_credits": {
     "available_count": 1,
     "credits": [
@@ -176,11 +200,16 @@ docker run --rm -e CODEX_USAGE_OUTPUT=influx -v codex-usage-exporter:/data codex
 ```text
 codex_usage_windows,email=person@example.com,window=primary used_percent=2,limit_window_seconds=18000i,reset_after_seconds=17956i,reset_at=1780217937i 1780199981000000000
 codex_usage_windows,email=person@example.com,window=secondary used_percent=27,limit_window_seconds=604800i,reset_after_seconds=245230i,reset_at=1780445211i 1780199981000000000
+codex_usage_windows,email=person@example.com,window=gpt-reserve-primary used_percent=0,limit_window_seconds=604800i,reset_after_seconds=604800i,reset_at=1780783921i 1780199981000000000
 codex_usage_resets,email=person@example.com available_count=1i,next_granted_at=1780172548i,next_expires_at=1782764548i,next_expires_after_seconds=2564567i 1780199981000000000
 codex_usage_photonmark_boost,email=person@example.com proxy_user="photonmark@example.com",active=1i,entitlement_id=130i,balance_usd=30,prepaid_usd=30,spent_usd=0,expires_at=1785458000i,seconds_remaining=2589259i 1780199981000000000
 ```
 
 `codex_usage_windows` uses `email` and `window` tags. `used_percent` is emitted as a float-compatible numeric field; `limit_window_seconds`, `reset_after_seconds`, and `reset_at` are emitted as Influx integer fields.
+
+The `gpt-reserve` primary window is emitted in this same measurement with
+`window=gpt-reserve-primary`. No series is emitted for its secondary window
+when the API reports that window as `null`.
 
 `codex_usage_resets` uses the `email` tag. `available_count`, `next_granted_at`, `next_expires_at`, and `next_expires_after_seconds` are emitted as Influx integer fields. The `next_*` fields are omitted when there is no available reset credit with an expiry timestamp. Individual reset-credit IDs are not emitted as tags to avoid creating a series per credit.
 
