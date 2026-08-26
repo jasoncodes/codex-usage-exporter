@@ -20,17 +20,22 @@ test("missing auth without TTY exits with login hint", async () => {
 
 test("missing auth with TTY runs device auth and fetches", async () => {
   let loadCount = 0;
+  const events = [];
   const spawned = [];
   const stdout = buffer();
   const code = await main({
-    env: {},
+    env: { CODEX_HOME: "/data/codex" },
     stdin: { isTTY: true },
     stdout,
     stderr: buffer(),
     nowMs: 1000000,
     spawnSync: (cmd, args) => {
+      events.push("spawn");
       spawned.push([cmd, args]);
       return { status: 0 };
+    },
+    mkdirSync: (directory, options) => {
+      events.push(["mkdir", directory, options]);
     },
     loadAuth: () => {
       loadCount += 1;
@@ -43,6 +48,7 @@ test("missing auth with TTY runs device auth and fetches", async () => {
   });
 
   assert.equal(code, 0);
+  assert.deepEqual(events, [["mkdir", "/data/codex", { recursive: true }], "spawn"]);
   assert.deepEqual(spawned, [["codex", ["login", "--device-auth"]]]);
   assert.deepEqual(JSON.parse(stdout.value), {
     timestamp: 1000,

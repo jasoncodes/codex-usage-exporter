@@ -2,6 +2,7 @@
 "use strict";
 
 const { spawn, spawnSync } = require("node:child_process");
+const { mkdirSync } = require("node:fs");
 const { loadAuth } = require("./auth");
 const {
   fetchPhotonMarkBoost,
@@ -31,11 +32,12 @@ async function main(deps = {}) {
   const fetchImpl = deps.fetch || globalThis.fetch;
   const nowMs = deps.nowMs;
   const loadAuthFn = deps.loadAuth || loadAuth;
+  const mkdirSyncFn = deps.mkdirSync || mkdirSync;
   const loadPhotonMarkBoostTokenFn = deps.loadPhotonMarkBoostToken || loadPhotonMarkBoostToken;
 
   try {
     const output = outputFromEnv(env);
-    const auth = ensureAuth({ env, stdin, stderr, spawn: spawnSyncFn, loadAuthFn });
+    const auth = ensureAuth({ env, stdin, stderr, spawn: spawnSyncFn, loadAuthFn, mkdirSync: mkdirSyncFn });
     await printUsage({
       auth,
       output,
@@ -82,9 +84,13 @@ function ensureAuth(deps) {
   return runLogin(deps);
 }
 
-function runLogin({ env, stdin, stderr, spawn, loadAuthFn }) {
+function runLogin({ env, stdin, stderr, spawn, loadAuthFn, mkdirSync: mkdirSyncFn }) {
   if (!stdin.isTTY) {
     throw new Error(LOGIN_HINT);
+  }
+
+  if (env.CODEX_HOME) {
+    mkdirSyncFn(env.CODEX_HOME, { recursive: true });
   }
 
   const result = spawn("codex", ["login", "--device-auth"], {
